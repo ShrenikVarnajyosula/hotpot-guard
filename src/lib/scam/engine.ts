@@ -199,12 +199,16 @@ function homoglyphSuspect(host: string): boolean {
 }
 
 function levenshtein(a: string, b: string): number {
-  const dp = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
-  for (let j = 0; j <= b.length; j++) dp[0][j] = j;
-  for (let i = 1; i <= a.length; i++)
-    for (let j = 1; j <= b.length; j++)
-      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
-  return dp[a.length][b.length];
+  let prev: number[] = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur: number[] = [i];
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      cur[j] = Math.min((prev[j] ?? 0) + 1, (cur[j - 1] ?? 0) + 1, (prev[j - 1] ?? 0) + cost);
+    }
+    prev = cur;
+  }
+  return prev[b.length] ?? 0;
 }
 
 export async function analyzeUrl(raw: string): Promise<UrlReport> {
@@ -238,7 +242,7 @@ export async function analyzeUrl(raw: string): Promise<UrlReport> {
   if ([".xyz", ".top", ".click", ".zip", ".rest", ".cfd", ".icu", ".buzz"].includes(tld))
     findings.push({ label: `High-abuse TLD ${tld} — typical of freshly registered scam domains`, severity: "high" });
   if (homoglyphSuspect(host)) findings.push({ label: "Homoglyph / punycode characters detected in hostname", severity: "high" });
-  const label = host.split(".")[0];
+  const label = host.split(".")[0] ?? host;
   for (const brand of TRUSTED_BRANDS) {
     const d = levenshtein(label.toLowerCase(), brand);
     if (d > 0 && d <= 2) findings.push({ label: `Typosquatting "${brand}" (edit distance ${d})`, severity: "high" });
@@ -276,7 +280,7 @@ export function localVerdict(
   matches: VectorMatch[],
   entities: Entities,
 ): Analysis {
-  const top = matches[0];
+  const top = matches[0] ?? { campaign: CAMPAIGNS[0]!, similarity: 0 };
   const graph = graphMatches(entities);
   const blended = Math.min(
     100,
@@ -370,7 +374,7 @@ export async function llmAnalyze(
     confidence: parsed.confidence ?? "MEDIUM",
     red_flags: parsed.red_flags ?? [],
     reasoning: parsed.reasoning ?? "",
-    matched_campaign: parsed.matched_campaign ?? `${matches[0].campaign.name} (Vector Similarity: ${matches[0].similarity.toFixed(2)})`,
+    matched_campaign: parsed.matched_campaign ?? `${matches[0]?.campaign.name ?? "n/a"} (Vector Similarity: ${(matches[0]?.similarity ?? 0).toFixed(2)})`,
     safety_actions: parsed.safety_actions ?? [],
     extracted_entities: { ...entities, ...(parsed.extracted_entities ?? {}) },
     source: "LLM",
